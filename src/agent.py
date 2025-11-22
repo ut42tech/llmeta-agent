@@ -1,7 +1,6 @@
 import logging
 
 from dotenv import load_dotenv
-from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -10,9 +9,8 @@ from livekit.agents import (
     JobProcess,
     cli,
     inference,
-    room_io,
 )
-from livekit.plugins import noise_cancellation, silero
+from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("agent")
@@ -69,14 +67,15 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=inference.STT(model="cartesia/ink-whisper", language="ja"),
+        stt=inference.STT(model="deepgram/nova-2", language="ja"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=inference.LLM(model="openai/gpt-4.1-mini"),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=inference.TTS(
-            model="cartesia/sonic-3", voice="9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
+            model="cartesia/sonic-3",
+            voice="59d4fd2f-f5eb-4410-8105-58db7661144f",
         ),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
@@ -109,16 +108,16 @@ async def my_agent(ctx: JobContext):
     await session.start(
         agent=Assistant(),
         room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: (
-                    noise_cancellation.BVCTelephony()
-                    if params.participant.kind
-                    == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-                    else noise_cancellation.BVC()
-                ),
-            ),
-        ),
+        # room_options=room_io.RoomOptions(
+        #     audio_input=room_io.AudioInputOptions(
+        #         noise_cancellation=lambda params: (
+        #             noise_cancellation.BVCTelephony()
+        #             if params.participant.kind
+        #             == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+        #             else noise_cancellation.BVC()
+        #         ),
+        #     ),
+        # ),
     )
 
     # Join the room and connect to the user
