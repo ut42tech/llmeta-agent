@@ -1,9 +1,10 @@
-import asyncio
 import json
 import logging
 
 from dotenv import load_dotenv
-from livekit.agents import AgentServer, JobContext, cli
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, inference
+from livekit.plugins import silero
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("agent")
 
@@ -12,33 +13,61 @@ load_dotenv(".env.local")
 server = AgentServer()
 
 
+class PhaseTwoAssistant(Agent):
+    def __init__(self) -> None:
+        super().__init__(
+            instructions=(
+                "あなたはテスト用のアシスタントです。"
+                "落ち着いた口調で、ユーザーが話しかけた内容に短く反応してください。"
+                "専門用語が出てきた場合は噛み砕いて説明してください。"
+            ),
+            allow_interruptions=True,
+        )
+
+    async def on_enter(self) -> None:
+        self.session.generate_reply(
+            instructions="接続が完了したら簡単な自己紹介をしてからユーザーの発話を待ってください。"
+        )
+
+
+def _create_session() -> AgentSession:
+    return AgentSession(
+        stt=inference.STT(model="deepgram/nova-2", language="ja"),
+        llm=inference.LLM(model="openai/gpt-4.1-mini"),
+        tts=inference.TTS(
+            model="cartesia/sonic-3",
+            voice="59d4fd2f-f5eb-4410-8105-58db7661144f",
+        ),
+        vad=silero.VAD.load(),
+        turn_detection=MultilingualModel(),
+        preemptive_generation=True,
+        resume_false_interruption=True,
+        false_interruption_timeout=1.0,
+    )
+
+
 @server.rtc_session()
 async def connection_agent(ctx: JobContext):
-    """Phase 1 agent: connect to the room and expose presence."""
-    shutdown_event = asyncio.Event()
-
-    async def _on_shutdown(_: str = "") -> None:
-        shutdown_event.set()
-
-    ctx.add_shutdown_callback(_on_shutdown)
-
-    room_name = getattr(ctx.job.room, "name", "unknown")
+    room_name = getattr(ctx.room, "name", "unknown")
     ctx.log_context_fields = {"room": room_name, "job_id": ctx.job.id}
 
     await ctx.connect()
 
     agent_identity = getattr(ctx.agent, "identity", "unknown-agent")
-    logger.info("Connected to room %s as %s", room_name, agent_identity)
+    logger.info("Starting Phase 2 pipeline in room %s as %s", room_name, agent_identity)
 
     try:
-        await ctx.agent.set_metadata(json.dumps({"agent": True}))
+        await ctx.agent.set_metadata(json.dumps({"agent": True, "phase": 2}))
     except Exception as exc:
         logger.warning("Unable to set agent metadata: %s", exc)
 
-    ctx.room.on("disconnected", lambda *_: shutdown_event.set())
+    session = _create_session()
+    agent = PhaseTwoAssistant()
 
-    await shutdown_event.wait()
-    logger.info("Disconnecting from room %s", room_name)
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+    )
 
 
 if __name__ == "__main__":
