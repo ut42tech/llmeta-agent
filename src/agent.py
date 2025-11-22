@@ -2,7 +2,16 @@ import json
 import logging
 
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, inference
+from livekit.agents import (
+    Agent,
+    AgentServer,
+    AgentSession,
+    AutoSubscribe,
+    JobContext,
+    RoomInputOptions,
+    cli,
+    inference,
+)
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -51,7 +60,7 @@ async def connection_agent(ctx: JobContext):
     room_name = getattr(ctx.room, "name", "unknown")
     ctx.log_context_fields = {"room": room_name, "job_id": ctx.job.id}
 
-    await ctx.connect()
+    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     agent_identity = getattr(ctx.agent, "identity", "unknown-agent")
     logger.info("Starting Phase 2 pipeline in room %s as %s", room_name, agent_identity)
@@ -64,9 +73,15 @@ async def connection_agent(ctx: JobContext):
     session = _create_session()
     agent = PhaseTwoAssistant()
 
+    room_input_options = RoomInputOptions(
+        audio_enabled=True,
+        close_on_disconnect=False,
+    )
+
     await session.start(
         agent=agent,
         room=ctx.room,
+        room_input_options=room_input_options,
     )
 
 
